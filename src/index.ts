@@ -15,7 +15,7 @@ export default {
       }
       const state = generateState()
       const authUrl = await github.createAuthorizationURL(state, {
-        scopes: searchParams.get('scopes')?.split(' '),
+        scopes: searchParams.get('scope')?.split(' '),
       })
       return Response.redirect(authUrl.toString(), 302)
     }
