@@ -6,6 +6,7 @@ A Cloudflare Worker Github OAuth proxy for Decap CMS.
 
 | Key                 | Value                                |
 | ------------------- | ------------------------------------ |
+| SITE_ID             | Your Decap CMS site hostname         |
 | GITHUB_OAUTH_ID     | Your GitHub OAuth App Client ID      |
 | GITHUB_OAUTH_SECRET | Your GitHub OAuth App Client Secrets |
 
