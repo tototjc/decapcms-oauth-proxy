@@ -2,19 +2,25 @@ import { GitHub, generateState, OAuth2RequestError } from 'arctic'
 
 export default {
   async fetch(request, env, context): Promise<Response> {
-    const url = new URL(request.url)
+    const { host, pathname, searchParams } = new URL(request.url)
     const github = new GitHub(env.GITHUB_OAUTH_ID, env.GITHUB_OAUTH_SECRET, {
-      redirectURI: `https://${url.host}/callback`,
+      redirectURI: `https://${host}/callback`,
     })
-    if (url.pathname === '/auth') {
+    if (pathname === '/auth') {
+      if (searchParams.get('provider') !== 'github') {
+        return new Response('Invalid provider', { status: 400 })
+      }
+      if (searchParams.get('site_id') !== env.SITE_ID) {
+        return new Response('Invalid site_id', { status: 400 })
+      }
       const state = generateState()
       const authUrl = await github.createAuthorizationURL(state, {
         scopes: ['user', 'repo'],
       })
       return Response.redirect(authUrl.toString(), 302)
     }
-    if (url.pathname === '/callback') {
-      const code = url.searchParams.get('code')
+    if (pathname === '/callback') {
+      const code = searchParams.get('code')
       if (!code) {
         return new Response('Missing code', { status: 400 })
       }
