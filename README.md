@@ -4,11 +4,11 @@ A Cloudflare Worker Github OAuth proxy for Decap CMS.
 
 ## Environments
 
-| Key                 | Value                                |
-| ------------------- | ------------------------------------ |
-| SITE_ID             | Your Decap CMS site hostname         |
-| GITHUB_OAUTH_ID     | Your GitHub OAuth App Client ID      |
-| GITHUB_OAUTH_SECRET | Your GitHub OAuth App Client Secrets |
+| Key                 | Value                                                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ALLOW_SITE_ID_LIST  | List of Decap CMS hostname allowed to login, separated by "`,`" for each hostname. If you want to allow localhost login, please add `demo.dacapcms.org` to the list. |
+| GITHUB_OAUTH_ID     | Your GitHub OAuth App Client ID                                                                                                                                      |
+| GITHUB_OAUTH_SECRET | Your GitHub OAuth App Client Secrets                                                                                                                                 |
 
 
 ## Endpoints

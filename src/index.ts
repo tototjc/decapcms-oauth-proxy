@@ -1,4 +1,5 @@
 import { GitHub, generateState, OAuth2RequestError } from 'arctic'
+import { serializeCookie, parseCookies } from 'oslo/cookie'
 
 export default {
   async fetch(request, env, context): Promise<Response> {
@@ -10,16 +11,39 @@ export default {
       if (searchParams.get('provider') !== 'github') {
         return new Response('Invalid provider', { status: 400 })
       }
-      if (searchParams.get('site_id') !== env.SITE_ID) {
+      const siteId = searchParams.get('site_id')
+      const allowSiteIdList = env.ALLOW_SITE_ID_LIST.trim().split(',')
+      if (!siteId || !allowSiteIdList.includes(siteId)) {
         return new Response('Invalid site_id', { status: 400 })
       }
       const state = generateState()
       const authUrl = await github.createAuthorizationURL(state, {
         scopes: searchParams.get('scope')?.split(' '),
       })
-      return Response.redirect(authUrl.toString(), 302)
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: authUrl.toString(),
+          'Set-Cookie': serializeCookie('__Secure-auth-state', state, {
+            maxAge: 3 * 60,
+            path: '/callback',
+            httpOnly: true,
+            secure: true,
+            sameSite: 'lax',
+          }),
+        },
+      })
     }
     if (pathname === '/callback') {
+      const cookieStr = request.headers.get('Cookie')
+      if (!cookieStr) {
+        return new Response('Missing cookie', { status: 400 })
+      }
+      const state = searchParams.get('state')
+      const storedState = parseCookies(cookieStr).get('__Secure-auth-state')
+      if (!state || !storedState || state !== storedState) {
+        return new Response('Invalid state', { status: 400 })
+      }
       const code = searchParams.get('code')
       if (!code) {
         return new Response('Missing code', { status: 400 })
