@@ -10,7 +10,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.5.20",
     "@cloudflare/workers-types": "^4.20241018.0",
-    "arctic": "^1.9.2",
+    "arctic": "^2.0.1",
     "oslo": "^1.2.1",
     "typescript": "^5.6.3",
     "wrangler": "^3.81.0"

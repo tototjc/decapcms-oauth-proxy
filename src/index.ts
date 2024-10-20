@@ -1,12 +1,10 @@
-import { GitHub, generateState, OAuth2RequestError } from 'arctic'
+import { GitHub, generateState, OAuth2RequestError, ArcticFetchError } from 'arctic'
 import { serializeCookie, parseCookies } from 'oslo/cookie'
 
 export default {
   async fetch(request, env, context): Promise<Response> {
     const { host, pathname, searchParams } = new URL(request.url)
-    const github = new GitHub(env.GITHUB_OAUTH_ID, env.GITHUB_OAUTH_SECRET, {
-      redirectURI: `https://${host}/callback`,
-    })
+    const github = new GitHub(env.GITHUB_OAUTH_ID, env.GITHUB_OAUTH_SECRET, `https://${host}/callback`)
     if (pathname === '/auth') {
       if (searchParams.get('provider') !== 'github') {
         return new Response('Invalid provider', { status: 400 })
@@ -16,10 +14,12 @@ export default {
       if (!siteId || !allowSiteIdList.includes(siteId)) {
         return new Response('Invalid site_id', { status: 400 })
       }
+      const scope = searchParams.get('scope')
+      if (!scope) {
+        return new Response('Invalid scope', { status: 400 })
+      }
       const state = generateState()
-      const authUrl = await github.createAuthorizationURL(state, {
-        scopes: searchParams.get('scope')?.split(' '),
-      })
+      const authUrl = github.createAuthorizationURL(state, scope.split(' '))
       return new Response(null, {
         status: 302,
         headers: {
@@ -49,13 +49,13 @@ export default {
         return new Response('Missing code', { status: 400 })
       }
       try {
-        const { accessToken } = await github.validateAuthorizationCode(code)
+        const tokens = await github.validateAuthorizationCode(code)
         const respText = `
           <script>
             window.addEventListener(
               'message',
               () => window.opener.postMessage('authorization:github:success:${JSON.stringify({
-                token: accessToken,
+                token: tokens.accessToken(),
               })}', '*'),
               { once: true },
             )
@@ -68,6 +68,8 @@ export default {
       } catch (err) {
         if (err instanceof OAuth2RequestError) {
           return new Response('Invalid code', { status: 400 })
+        } else if (err instanceof ArcticFetchError) {
+          return new Response('Network error', { status: 500 })
         } else {
           return new Response('Internal server error', { status: 500 })
         }
