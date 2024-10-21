@@ -1,11 +1,23 @@
-import { GitHub, generateState, OAuth2RequestError, ArcticFetchError } from 'arctic'
-import { serializeCookie, parseCookies } from 'oslo/cookie'
+import { GitHub, OAuth2RequestError, ArcticFetchError } from 'arctic'
+import { csrfTokenGenerator } from './csrf-token'
+import { parseCookies } from 'oslo/cookie'
 
 export default {
   async fetch(request, env, context): Promise<Response> {
     try {
       const { host, pathname, searchParams } = new URL(request.url)
       const github = new GitHub(env.GITHUB_OAUTH_ID, env.GITHUB_OAUTH_SECRET, `https://${host}/callback`)
+      const csrfToken = new csrfTokenGenerator({
+        token: { secret: env.SECRET },
+        cookie: {
+          name: 'auth-state',
+          prefix: 'secure',
+          options: {
+            maxAge: 3 * 60,
+            path: '/callback',
+          },
+        },
+      })
       if (pathname === '/auth') {
         const allowSiteIdList = env.ALLOW_SITE_ID_LIST.trim().split(',')
         const allowHostnameList = [...allowSiteIdList, 'localhost', '127.0.0.1']
@@ -23,19 +35,13 @@ export default {
           return new Response('Invalid provider', { status: 400 })
         }
         const scope = searchParams.get('scope')
-        const state = generateState()
+        const state = await csrfToken.getToken()
         const authUrl = github.createAuthorizationURL(state, scope ? scope.split(' ') : [])
         return new Response(null, {
           status: 302,
           headers: {
             Location: authUrl.toString(),
-            'Set-Cookie': serializeCookie('__Secure-auth-state', state, {
-              maxAge: 3 * 60,
-              path: '/callback',
-              httpOnly: true,
-              secure: true,
-              sameSite: 'lax',
-            }),
+            'Set-Cookie': csrfToken.getTokenCookie(state).serialize(),
           },
         })
       }
@@ -45,8 +51,8 @@ export default {
           return new Response('Missing cookie', { status: 400 })
         }
         const state = searchParams.get('state')
-        const storedState = parseCookies(cookieStr).get('__Secure-auth-state')
-        if (!state || !storedState || state !== storedState) {
+        const storedState = parseCookies(cookieStr).get(csrfToken.tokenCookieName)
+        if (!state || !storedState || state !== storedState || !(await csrfToken.verifyToken(state))) {
           return new Response('Invalid state', { status: 400 })
         }
         const code = searchParams.get('code')
@@ -67,7 +73,10 @@ export default {
           </script>
         `
         return new Response(respText, {
-          headers: { 'Content-Type': 'text/html' },
+          headers: {
+            'Content-Type': 'text/html',
+            'Set-Cookie': csrfToken.getBlankCookie().serialize(),
+          },
         })
       }
     } catch (err) {
