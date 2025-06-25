@@ -1,93 +1,103 @@
-import { GitHub, OAuth2RequestError, ArcticFetchError } from 'arctic'
-import { csrfTokenGenerator } from './csrf-token'
-import { parseCookies } from 'oslo/cookie'
+import { Hono } from 'hono'
+import { env } from 'hono/adapter'
+import { HTTPException } from 'hono/http-exception'
+import { getSignedCookie, setSignedCookie } from 'hono/cookie'
+import { GitHub, ArcticFetchError, OAuth2RequestError } from 'arctic'
 
-export default {
-  async fetch(request, env, context): Promise<Response> {
-    try {
-      const { host, pathname, searchParams } = new URL(request.url)
-      const github = new GitHub(env.GITHUB_OAUTH_ID, env.GITHUB_OAUTH_SECRET, `https://${host}/callback`)
-      const csrfToken = new csrfTokenGenerator({
-        token: { secret: env.SECRET },
-        cookie: {
-          name: 'auth-state',
-          prefix: 'secure',
-          options: {
-            maxAge: 3 * 60,
-            path: '/callback',
-          },
-        },
-      })
-      if (pathname === '/auth') {
-        const allowSiteIdList = env.ALLOW_SITE_ID_LIST.trim().split(',')
-        const allowHostnameList = [...allowSiteIdList, 'localhost', '127.0.0.1']
-        try {
-          const referer = request.headers.get('Referer')
-          if (!referer || !allowHostnameList.includes(new URL(referer).hostname)) throw new Error()
-        } catch {
-          return new Response('Invalid referer', { status: 400 })
-        }
-        const siteId = searchParams.get('site_id')
-        if (!siteId || !allowSiteIdList.includes(siteId)) {
-          return new Response('Invalid site_id', { status: 400 })
-        }
-        if (searchParams.get('provider') !== 'github') {
-          return new Response('Invalid provider', { status: 400 })
-        }
-        const scope = searchParams.get('scope')
-        const state = await csrfToken.getToken()
-        const authUrl = github.createAuthorizationURL(state, scope ? scope.split(' ') : [])
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: authUrl.toString(),
-            'Set-Cookie': csrfToken.getTokenCookie(state).serialize(),
-          },
-        })
-      }
-      if (pathname === '/callback') {
-        const cookieStr = request.headers.get('Cookie')
-        if (!cookieStr) {
-          return new Response('Missing cookie', { status: 400 })
-        }
-        const state = searchParams.get('state')
-        const storedState = parseCookies(cookieStr).get(csrfToken.tokenCookieName)
-        if (!state || !storedState || state !== storedState || !(await csrfToken.verifyToken(state))) {
-          return new Response('Invalid state', { status: 400 })
-        }
-        const code = searchParams.get('code')
-        if (!code) {
-          return new Response('Missing code', { status: 400 })
-        }
-        const tokens = await github.validateAuthorizationCode(code)
-        const respText = `
-          <script>
-            window.addEventListener(
-              'message',
-              () => window.opener.postMessage('authorization:github:success:${JSON.stringify({
-                token: tokens.accessToken(),
-              })}', '*'),
-              { once: true },
-            )
-            window.opener.postMessage('authorizing:github', '*')
-          </script>
-        `
-        return new Response(respText, {
-          headers: {
-            'Content-Type': 'text/html',
-            'Set-Cookie': csrfToken.getBlankCookie().serialize(),
-          },
-        })
-      }
-    } catch (err) {
-      if (err instanceof OAuth2RequestError) {
-        return new Response('Invalid code', { status: 400 })
-      } else if (err instanceof ArcticFetchError) {
-        return new Response('Network error', { status: 500 })
-      } else {
-        return new Response('Internal server error', { status: 500 })
-      }
-    }
-    return new Response('Ciallo～(∠・ω< )⌒☆')
-  },
-} satisfies ExportedHandler<Env>
+import { generateToken, verifyToken } from './csrf-token'
+
+const defaultAllowSiteIdList = ['localhost', '127.0.0.1']
+
+const app = new Hono<{
+  Bindings: Env
+  Variables: {
+    github: GitHub
+  }
+}>()
+
+app.use(async (ctx, next) => {
+  ctx.set('github', new GitHub(
+    env(ctx).GITHUB_OAUTH_ID,
+    env(ctx).GITHUB_OAUTH_SECRET,
+    `https://${new URL(ctx.req.url).host}/callback`
+  ))
+  await next()
+  const err = ctx.error
+  if (err instanceof OAuth2RequestError) {
+    throw new HTTPException(400, { message: 'Invalid code', cause: err })
+  }
+  if (err instanceof ArcticFetchError) {
+    throw new HTTPException(500, { message: 'Network error', cause: err })
+  }
+})
+
+app.onError((err, ctx) => {
+  if (err instanceof HTTPException) {
+    return err.getResponse()
+  } else {
+    return ctx.body('Internal Server Error', 500)
+  }
+})
+
+app.get('/auth', async ctx => {
+  const allowSiteIdList = [
+    ...env(ctx).ALLOW_SITE_ID_LIST.trim().split(','),
+    ...defaultAllowSiteIdList,
+  ]
+  const { site_id, provider, scope } = ctx.req.query()
+  const refererHost = URL.parse(ctx.req.header('Referer') ?? '')?.hostname
+  if (!refererHost || !allowSiteIdList.includes(refererHost)) {
+    throw new HTTPException(400, { message: 'Invalid referer' })
+  }
+  if (!site_id || !allowSiteIdList.includes(site_id)) {
+    throw new HTTPException(400, { message: 'Invalid site_id' })
+  }
+  if (provider !== 'github') {
+    throw new HTTPException(400, { message: 'Invalid provider' })
+  }
+  const state = await generateToken(env(ctx).SECRET)
+  await setSignedCookie(ctx, 'auth-state', state, env(ctx).SECRET, {
+    secure: true,
+  })
+  return ctx.redirect(
+    ctx.var.github.createAuthorizationURL(state, scope ? scope.split(' ') : [])
+  )
+})
+
+app.get('/callback', async ctx => {
+  const { state, code } = ctx.req.query()
+  if (!code) {
+    throw new HTTPException(400, { message: 'Invalid code' })
+  }
+  const storedState = await getSignedCookie(
+    ctx,
+    env(ctx).SECRET,
+    'auth-state',
+    'secure'
+  )
+  if (
+    !state ||
+    !storedState ||
+    state !== storedState ||
+    !(await verifyToken(env(ctx).SECRET, state))
+  ) {
+    throw new HTTPException(400, { message: 'Invalid state' })
+  }
+  const tokens = await ctx.var.github.validateAuthorizationCode(code)
+  return ctx.html(`
+    <script>
+      window.addEventListener(
+        'message',
+        () => window.opener.postMessage('authorization:github:success:${JSON.stringify(
+          {
+            token: tokens.accessToken(),
+          }
+        )}', '*'),
+        { once: true },
+      )
+      window.opener.postMessage('au thorizing:github', '*')
+    </script>
+  `)
+})
+
+export default app satisfies ExportedHandler<Env>

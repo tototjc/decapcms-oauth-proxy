@@ -1,81 +1,54 @@
-import { CookieController, Cookie, type CookieAttributes } from 'oslo/cookie'
-import { alphabet, generateRandomString, HMAC } from 'oslo/crypto'
-import { base64url } from 'oslo/encoding'
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
 
-export interface generatorConfig {
-  token: {
-    secret: string
-    length?: number
-  }
-  cookie: {
-    name: string
-    prefix?: 'host' | 'secure'
-    options?: CookieAttributes
-  }
+const base64UrlEncode = (data: ArrayBuffer | ArrayBufferView): string =>
+  btoa(decoder.decode(data))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+
+const base64UrlDecode = (str: string): ArrayBufferView =>
+  encoder.encode(
+    atob(
+      str.replace(/-/g, '+').replace(/_/g, '/') +
+        '='.repeat((4 - (str.length % 4)) % 4)
+    )
+  )
+
+export const generateToken = async (
+  secret: string,
+  length: number = 32
+): Promise<string> => {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const plainData = crypto.getRandomValues(new Uint8Array(length))
+  const signData = await crypto.subtle.sign('HMAC', key, plainData)
+  return [base64UrlEncode(signData), base64UrlEncode(plainData)].join('.')
 }
 
-export class csrfTokenGenerator {
-  hmac: HMAC
-  enc: TextEncoder
-  tokenLength: number
-  cookieBuilder: CookieController
-
-  protected tokenSecret: ArrayBuffer
-
-  constructor({ token, cookie }: generatorConfig) {
-    this.hmac = new HMAC('SHA-256')
-    this.enc = new TextEncoder()
-    this.tokenSecret = this.enc.encode(token.secret)
-    this.tokenLength = token.length || 16
-
-    let prefix: string
-
-    switch (cookie.prefix) {
-      case 'host':
-        prefix = '__Host-'
-        break
-      case 'secure':
-        prefix = '__Secure-'
-        break
-      default:
-        prefix = ''
-    }
-
-    this.cookieBuilder = new CookieController(prefix + cookie.name, {
-      path: '/',
-      secure: true,
-      httpOnly: true,
-      sameSite: 'lax',
-      ...cookie.options,
-    })
-  }
-
-  public get tokenCookieName(): string {
-    return this.cookieBuilder.cookieName
-  }
-
-  public getToken = async (): Promise<string> => {
-    const plainValue = generateRandomString(this.tokenLength, alphabet('A-Z', 'a-z', '0-9'))
-    const signData = await this.hmac.sign(this.tokenSecret, this.enc.encode(plainValue))
-    const signValue = base64url.encode(new Uint8Array(signData), { includePadding: false })
-    return [signValue, plainValue].join('.')
-  }
-
-  public verifyToken = async (token: string): Promise<boolean> => {
-    const tokenParts = token.split('.')
-    if (tokenParts.length !== 2) {
-      return false
-    }
-    const [signValue, plainValue] = tokenParts
-    const signData = base64url.decode(signValue, { strict: false })
-    return await this.hmac.verify(this.tokenSecret, signData, this.enc.encode(plainValue))
-  }
-
-  public getTokenCookie = (token: string): Cookie => {
-    return this.cookieBuilder.createCookie(token)
-  }
-
-  public getBlankCookie = (): Cookie => {
-    return this.cookieBuilder.createBlankCookie()
-  }
+export const verifyToken = async (
+  secret: string,
+  token: string
+): Promise<boolean> => {
+  const tokenParts = token.split('.')
+  if (tokenParts.length !== 2) return false
+  const [signStr, plainStr] = tokenParts
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['verify']
+  )
+  return await crypto.subtle.verify(
+    'HMAC',
+    key,
+    base64UrlDecode(signStr),
+    base64UrlDecode(plainStr)
+  )
 }
