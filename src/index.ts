@@ -98,9 +98,11 @@ app.get('/callback', async ctx => {
         )}', '*'),
         { once: true },
       )
-      window.opener.postMessage('au thorizing:github', '*')
+      window.opener.postMessage('authorizing:github', '*')
     </script>
   `)
 })
+
+app.all('/', ctx => ctx.body('Ciallo～(∠·ω< )⌒★'))
 
 export default app satisfies ExportedHandler<Env>
