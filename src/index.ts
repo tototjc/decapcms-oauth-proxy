@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
 import { HTTPException } from 'hono/http-exception'
-import { setSignedCookie, getSignedCookie, deleteCookie } from 'hono/cookie'
+import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
 import { GitHub, ArcticFetchError, OAuth2RequestError } from 'arctic'
 
 import { generateToken, verifyToken } from './csrf-token'
@@ -59,7 +59,8 @@ app.get('/auth', async ctx => {
     throw new HTTPException(400, { message: 'Invalid provider' })
   }
   const state = await generateToken(env(ctx).SECRET)
-  await setSignedCookie(ctx, 'auth-state', state, env(ctx).SECRET, {
+  setCookie(ctx, 'auth-state', state, {
+    prefix: 'secure',
     secure: true,
     sameSite: 'Lax',
     path: '/callback',
@@ -75,12 +76,7 @@ app.get('/callback', async ctx => {
   if (!code) {
     throw new HTTPException(400, { message: 'Invalid code' })
   }
-  const storedState = await getSignedCookie(
-    ctx,
-    env(ctx).SECRET,
-    'auth-state',
-    'secure'
-  )
+  const storedState = getCookie(ctx, 'auth-state', 'secure')
   if (
     !state ||
     !storedState ||
