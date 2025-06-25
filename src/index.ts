@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { env } from 'hono/adapter'
 import { HTTPException } from 'hono/http-exception'
-import { getSignedCookie, setSignedCookie } from 'hono/cookie'
+import { setSignedCookie, getSignedCookie, deleteCookie } from 'hono/cookie'
 import { GitHub, ArcticFetchError, OAuth2RequestError } from 'arctic'
 
 import { generateToken, verifyToken } from './csrf-token'
@@ -84,6 +84,7 @@ app.get('/callback', async ctx => {
     throw new HTTPException(400, { message: 'Invalid state' })
   }
   const tokens = await ctx.var.github.validateAuthorizationCode(code)
+  deleteCookie(ctx, 'auth-state', { secure: true })
   return ctx.html(`
     <script>
       window.addEventListener(
