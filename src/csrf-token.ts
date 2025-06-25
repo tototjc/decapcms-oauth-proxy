@@ -1,13 +1,12 @@
 const encoder = new TextEncoder()
-const decoder = new TextDecoder()
 
-const base64UrlEncode = (data: ArrayBuffer | ArrayBufferView): string =>
-  btoa(decoder.decode(data))
+const base64UrlEncode = (data: Uint8Array): string =>
+  btoa(String.fromCharCode(...data))
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '')
 
-const base64UrlDecode = (str: string): ArrayBufferView =>
+const base64UrlDecode = (str: string): Uint8Array =>
   encoder.encode(
     atob(
       str.replace(/-/g, '+').replace(/_/g, '/') +
@@ -27,7 +26,9 @@ export const generateToken = async (
     ['sign']
   )
   const plainData = crypto.getRandomValues(new Uint8Array(length))
-  const signData = await crypto.subtle.sign('HMAC', key, plainData)
+  const signData = new Uint8Array(
+    await crypto.subtle.sign('HMAC', key, plainData)
+  )
   return [base64UrlEncode(signData), base64UrlEncode(plainData)].join('.')
 }
 
