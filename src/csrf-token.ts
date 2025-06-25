@@ -7,11 +7,12 @@ const base64UrlEncode = (data: Uint8Array): string =>
     .replace(/=+$/, '')
 
 const base64UrlDecode = (str: string): Uint8Array =>
-  encoder.encode(
+  Uint8Array.from(
     atob(
       str.replace(/-/g, '+').replace(/_/g, '/') +
         '='.repeat((4 - (str.length % 4)) % 4)
-    )
+    ),
+    c => c.charCodeAt(0)
   )
 
 export const generateToken = async (
