@@ -8,12 +8,10 @@
     "typegen": "wrangler types"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.5.20",
-    "@cloudflare/workers-types": "^4.20241018.0",
-    "arctic": "^2.0.1",
+    "arctic": "^3.7.0",
     "oslo": "^1.2.1",
-    "typescript": "^5.6.3",
-    "wrangler": "^3.81.0"
+    "typescript": "^5.8.3",
+    "wrangler": "^4.21.2"
   },
-  "packageManager": "pnpm@9.12.2"
+  "packageManager": "pnpm@10.12.2"
 }
