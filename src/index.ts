@@ -16,11 +16,14 @@ const app = new Hono<{
 }>()
 
 app.use(async (ctx, next) => {
-  ctx.set('github', new GitHub(
-    env(ctx).GITHUB_OAUTH_ID,
-    env(ctx).GITHUB_OAUTH_SECRET,
-    `https://${new URL(ctx.req.url).host}/callback`
-  ))
+  ctx.set(
+    'github',
+    new GitHub(
+      env(ctx).GITHUB_OAUTH_ID,
+      env(ctx).GITHUB_OAUTH_SECRET,
+      `https://${new URL(ctx.req.url).host}/callback`
+    )
+  )
   await next()
   const err = ctx.error
   if (err instanceof OAuth2RequestError) {
@@ -58,6 +61,9 @@ app.get('/auth', async ctx => {
   const state = await generateToken(env(ctx).SECRET)
   await setSignedCookie(ctx, 'auth-state', state, env(ctx).SECRET, {
     secure: true,
+    sameSite: 'Lax',
+    path: '/callback',
+    maxAge: 3 * 60,
   })
   return ctx.redirect(
     ctx.var.github.createAuthorizationURL(state, scope ? scope.split(' ') : [])
@@ -84,7 +90,7 @@ app.get('/callback', async ctx => {
     throw new HTTPException(400, { message: 'Invalid state' })
   }
   const tokens = await ctx.var.github.validateAuthorizationCode(code)
-  deleteCookie(ctx, 'auth-state', { secure: true })
+  deleteCookie(ctx, 'auth-state', { secure: true, path: '/callback' })
   return ctx.html(`
     <script>
       window.addEventListener(
