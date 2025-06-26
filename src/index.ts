@@ -1,5 +1,6 @@
-import { Hono } from 'hono'
+import { Hono, type Env as HonoEnv } from 'hono'
 import { env } from 'hono/adapter'
+import { createMiddleware } from 'hono/factory'
 import { HTTPException } from 'hono/http-exception'
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
 import { GitHub, ArcticFetchError, OAuth2RequestError } from 'arctic'
@@ -8,14 +9,14 @@ import { generateToken, verifyToken } from './csrf-token'
 
 const DEFAULT_SITE_ID_LIST = ['localhost', '127.0.0.1']
 
-const app = new Hono<{
+interface AppEnv extends HonoEnv {
   Bindings: Env
   Variables: {
     github: GitHub
   }
-}>()
+}
 
-app.use(async (ctx, next) => {
+const githubAuthMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   ctx.set(
     'github',
     new GitHub(
@@ -34,6 +35,8 @@ app.use(async (ctx, next) => {
   }
 })
 
+const app = new Hono<AppEnv>()
+
 app.onError((err, ctx) => {
   if (err instanceof HTTPException) {
     return err.getResponse()
@@ -42,7 +45,7 @@ app.onError((err, ctx) => {
   }
 })
 
-app.get('/auth', async ctx => {
+app.get('/auth', githubAuthMiddleware, async ctx => {
   const allowSiteIdList = [
     ...env(ctx).ALLOW_SITE_ID_LIST.trim().split(','),
     ...DEFAULT_SITE_ID_LIST,
@@ -71,7 +74,7 @@ app.get('/auth', async ctx => {
   )
 })
 
-app.get('/callback', async ctx => {
+app.get('/callback', githubAuthMiddleware, async ctx => {
   const { state, code } = ctx.req.query()
   if (!code) {
     throw new HTTPException(400, { message: 'Invalid code' })
@@ -89,7 +92,9 @@ app.get('/callback', async ctx => {
   deleteCookie(ctx, 'auth-state', { secure: true, path: '/callback' })
   return ctx.html(`
     <script>
-      window.addEventListener('message', () => window.opener.postMessage('authorization:github:success:${JSON.stringify({token: tokens.accessToken()})}', '*'), { once: true })
+      window.addEventListener('message', () => window.opener.postMessage('authorization:github:success:${JSON.stringify(
+        { token: tokens.accessToken() }
+      )}', '*'), { once: true })
       window.opener.postMessage('authorizing:github', '*')
     </script>
   `)
