@@ -103,6 +103,6 @@ app.get('/callback', async ctx => {
   `)
 })
 
-app.all('/', ctx => ctx.body('Ciallo～(∠·ω< )⌒★'))
+app.all('*', ctx => ctx.body('Ciallo～(∠·ω< )⌒★'))
 
 export default app satisfies ExportedHandler<Env>
