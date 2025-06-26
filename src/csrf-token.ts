@@ -27,10 +27,10 @@ export const generateToken = async (
     ['sign']
   )
   const plainData = crypto.getRandomValues(new Uint8Array(length))
-  const signData = new Uint8Array(
+  const signedData = new Uint8Array(
     await crypto.subtle.sign('HMAC', key, plainData)
   )
-  return [base64UrlEncode(signData), base64UrlEncode(plainData)].join('.')
+  return [base64UrlEncode(plainData), base64UrlEncode(signedData)].join('.')
 }
 
 export const verifyToken = async (
@@ -39,7 +39,7 @@ export const verifyToken = async (
 ): Promise<boolean> => {
   const tokenParts = token.split('.')
   if (tokenParts.length !== 2) return false
-  const [signStr, plainStr] = tokenParts
+  const [plainStr, signedStr] = tokenParts
   const key = await crypto.subtle.importKey(
     'raw',
     encoder.encode(secret),
@@ -50,7 +50,7 @@ export const verifyToken = async (
   return await crypto.subtle.verify(
     'HMAC',
     key,
-    base64UrlDecode(signStr),
+    base64UrlDecode(signedStr),
     base64UrlDecode(plainStr)
   )
 }

@@ -6,7 +6,7 @@ import { GitHub, ArcticFetchError, OAuth2RequestError } from 'arctic'
 
 import { generateToken, verifyToken } from './csrf-token'
 
-const defaultAllowSiteIdList = ['localhost', '127.0.0.1']
+const DEFAULT_SITE_ID_LIST = ['localhost', '127.0.0.1']
 
 const app = new Hono<{
   Bindings: Env
@@ -21,7 +21,7 @@ app.use(async (ctx, next) => {
     new GitHub(
       env(ctx).GITHUB_OAUTH_ID,
       env(ctx).GITHUB_OAUTH_SECRET,
-      `https://${new URL(ctx.req.url).host}/callback`
+      new URL('/callback', ctx.req.url).href
     )
   )
   await next()
@@ -45,7 +45,7 @@ app.onError((err, ctx) => {
 app.get('/auth', async ctx => {
   const allowSiteIdList = [
     ...env(ctx).ALLOW_SITE_ID_LIST.trim().split(','),
-    ...defaultAllowSiteIdList,
+    ...DEFAULT_SITE_ID_LIST,
   ]
   const { site_id, provider, scope } = ctx.req.query()
   const refererHost = URL.parse(ctx.req.header('Referer') ?? '')?.hostname
@@ -89,20 +89,12 @@ app.get('/callback', async ctx => {
   deleteCookie(ctx, 'auth-state', { secure: true, path: '/callback' })
   return ctx.html(`
     <script>
-      window.addEventListener(
-        'message',
-        () => window.opener.postMessage('authorization:github:success:${JSON.stringify(
-          {
-            token: tokens.accessToken(),
-          }
-        )}', '*'),
-        { once: true },
-      )
+      window.addEventListener('message', () => window.opener.postMessage('authorization:github:success:${JSON.stringify({token: tokens.accessToken()})}', '*'), { once: true })
       window.opener.postMessage('authorizing:github', '*')
     </script>
   `)
 })
 
-app.all('*', ctx => ctx.body('Ciallo～(∠·ω< )⌒★'))
+app.all('*', ctx => ctx.body('Ciallo～(∠·ω< )⌒★', 418))
 
 export default app satisfies ExportedHandler<Env>
