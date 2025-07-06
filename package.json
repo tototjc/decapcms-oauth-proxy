@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "arctic": "^3.7.0",
-    "hono": "^4.8.3",
-    "wrangler": "^4.21.2"
+    "hono": "^4.8.4",
+    "wrangler": "^4.23.0"
   }
 }
