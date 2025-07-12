@@ -5,7 +5,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "decapcms-auth",
-  "main": "src/index.ts",
+  "main": "index.ts",
   "compatibility_date": "2025-06-20",
   "observability": {
     "enabled": true
