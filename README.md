@@ -1,6 +1,6 @@
-# decapcms-github-oauth-proxy
+# decapcms-oauth-proxy
 
-A Cloudflare Worker Github OAuth proxy for Decap CMS.
+A Cloudflare Worker Github & Gitlab OAuth proxy for Decap CMS.
 
 ## Environments
 
@@ -8,13 +8,15 @@ A Cloudflare Worker Github OAuth proxy for Decap CMS.
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SECRET              | A random string used to encrypt token.                                                                                                                               |
 | ALLOW_SITE_ID_LIST  | List of Decap CMS hostname allowed to login, separated by "`,`" for each hostname. If you want to allow localhost login, please add `demo.dacapcms.org` to the list. |
-| GITHUB_OAUTH_ID     | Your GitHub OAuth App Client ID.                                                                                                                                     |
-| GITHUB_OAUTH_SECRET | Your GitHub OAuth App Client Secrets.                                                                                                                                |
-
+| GITHUB_OAUTH_ID     | GitHub OAuth App Client ID.                                                                                                                                          |
+| GITHUB_OAUTH_SECRET | GitHub OAuth App Client Secrets.                                                                                                                                     |
+| GITLAB_BASE_URL     | Gitlab Base Url. Default: `https://gitlab.com`                                                                                                                       |
+| GITLAB_OAUTH_ID     | Gitlab OAuth App Client ID.                                                                                                                                          |
+| GITLAB_OAUTH_SECRET | GitHub OAuth App Client Secrets.                                                                                                                                     |
 
 ## Endpoints
 
-| URL                              | Usage                                                                      |
-| -------------------------------- | -------------------------------------------------------------------------- |
-| https://[my.domain.com]/auth     | Oauth Authorization Endpoint (`auth_endpoint` value in Decap `config.yml`) |
-| https://[my.domain.com]/callback | Oauth Callback Endpoint                                                    |
+| URL                              | Usage                                                                        |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| https://[my.domain.com]/auth     | Oauth Authorization Endpoint (`auth_endpoint` value in Decap Backend config) |
+| https://[my.domain.com]/callback | Oauth Callback Endpoint                                                      |
