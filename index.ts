@@ -14,6 +14,8 @@ const ENDPOINT_MAP = {
   callback: '/callback',
 } as const
 
+declare const __BUILD_TIME__: string
+
 declare module 'hono' {
   type Code = import('hono/utils/http-status').ContentfulStatusCode
 
@@ -106,6 +108,11 @@ window.opener.postMessage('${signal}', '${trustOrigin ?? '*'}')
 })
 
 const app = new Hono<AppEnv>()
+
+app.use(async (ctx, next) => {
+  await next()
+  ctx.header('Build-Time', __BUILD_TIME__)
+})
 
 app.onError((err, ctx) => {
   if (err instanceof OAuth2RequestError) {

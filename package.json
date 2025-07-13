@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy --minify",
+    "dev": "wrangler dev --define \"__BUILD_TIME__:'dev'\"",
+    "deploy": "wrangler deploy --minify --define \"__BUILD_TIME__:'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"",
     "typegen": "wrangler types"
   },
   "devDependencies": {
