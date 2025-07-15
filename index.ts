@@ -135,13 +135,14 @@ app.use(async (ctx, next) => {
 
 app.use(
   secureHeaders({
-    crossOriginOpenerPolicy: false,
     contentSecurityPolicy: {
       defaultSrc: ["'none'"],
       scriptSrcElem: [NONCE],
       frameAncestors: ["'none'"],
       formAction: ["'none'"],
     },
+    crossOriginOpenerPolicy: false,
+    referrerPolicy: 'origin',
   })
 )
 
