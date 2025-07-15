@@ -2,6 +2,11 @@ import { Hono, type Env as HonoEnv } from 'hono'
 import { env } from 'hono/adapter'
 import { createMiddleware } from 'hono/factory'
 import { HTTPException } from 'hono/http-exception'
+import {
+  secureHeaders,
+  NONCE,
+  type SecureHeadersVariables,
+} from 'hono/secure-headers'
 import { setSignedCookie, getSignedCookie, deleteCookie } from 'hono/cookie'
 import { GitHub, GitLab, generateState, OAuth2RequestError } from 'arctic'
 
@@ -39,7 +44,7 @@ interface AppEnv extends HonoEnv {
     site_id: string
     provider: 'github' | 'gitlab'
     oauthClient: GitHub | GitLab
-  }
+  } & SecureHeadersVariables
 }
 
 const getStateCookieName = (provider: string) => `${provider}-state` as const
@@ -47,7 +52,10 @@ const getStateCookieName = (provider: string) => `${provider}-state` as const
 const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const site_id = ctx.req.query('site_id')
   const allowSiteIdList = [
-    ...env(ctx).ALLOW_SITE_ID_LIST.split(',').map(i => i.trim()).filter(Boolean),
+    ...env(ctx)
+      .ALLOW_SITE_ID_LIST.split(',')
+      .map(i => i.trim())
+      .filter(Boolean),
     ...DEFAULT_SITE_ID_LIST,
   ]
   if (!site_id || !allowSiteIdList.includes(site_id)) {
@@ -91,18 +99,29 @@ const oauthMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
 })
 
 const respRenderMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
-  const { provider, site_id } = ctx.var
+  const { provider, site_id, secureHeadersNonce } = ctx.var
   const referer = URL.parse(ctx.req.header('Referer') ?? '')
-  const trustOrigin = (referer && site_id === referer.hostname) ? referer.origin : undefined
+  const trustOrigin =
+    referer && site_id === referer.hostname ? referer.origin : undefined
   ctx.setRenderer((status, payload, code) => {
     const signal = ['authorizing', provider].join(':')
-    const data = ['authorization', provider, status, JSON.stringify(payload)].join(':')
-    return ctx.html(`
-<script>
-window.addEventListener('message', ({ data, origin, source }) => ${trustOrigin ? `origin === '${trustOrigin}' &&` : ''} source === window.opener && data === '${signal}' && source.postMessage('${data}', origin), { once: true })
+    const data = [
+      'authorization',
+      provider,
+      status,
+      JSON.stringify(payload),
+    ].join(':')
+    return ctx.html(
+      `
+<script nonce="${secureHeadersNonce}">
+window.addEventListener('message', ({ data, origin, source }) => ${
+        trustOrigin ? `origin === '${trustOrigin}' &&` : ''
+      } source === window.opener && data === '${signal}' && source.postMessage('${data}', origin), { once: true })
 window.opener.postMessage('${signal}', '${trustOrigin ?? '*'}')
 </script>
-    `.trim(), code)
+    `.trim(),
+      code
+    )
   })
   await next()
 })
@@ -113,6 +132,18 @@ app.use(async (ctx, next) => {
   await next()
   ctx.header('Build-Time', __BUILD_TIME__)
 })
+
+app.use(
+  secureHeaders({
+    crossOriginOpenerPolicy: false,
+    contentSecurityPolicy: {
+      defaultSrc: ["'none'"],
+      scriptSrcElem: [NONCE],
+      frameAncestors: ["'none'"],
+      formAction: ["'none'"],
+    },
+  })
+)
 
 app.onError((err, ctx) => {
   if (err instanceof OAuth2RequestError) {
@@ -155,7 +186,12 @@ app.get(
   async ctx => {
     const { provider, oauthClient } = ctx.var
     const cookieName = getStateCookieName(provider)
-    const storedState = await getSignedCookie(ctx, env(ctx).SECRET, cookieName, 'secure')
+    const storedState = await getSignedCookie(
+      ctx,
+      env(ctx).SECRET,
+      cookieName,
+      'secure'
+    )
     deleteCookie(ctx, cookieName, { path: ENDPOINT_MAP.callback, secure: true })
     const state = ctx.req.query('state')
     if (!state || !storedState || state !== storedState) {
