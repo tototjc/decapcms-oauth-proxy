@@ -16,7 +16,6 @@ A Cloudflare Worker Github & Gitlab OAuth proxy for Decap CMS.
 
 ## Endpoints
 
-| URL                              | Usage                                                                        |
-| -------------------------------- | ---------------------------------------------------------------------------- |
-| https://[my.domain.com]/auth     | Oauth Authorization Endpoint (`auth_endpoint` value in Decap Backend config) |
-| https://[my.domain.com]/callback | Oauth Callback Endpoint                                                      |
+| URL                          | Usage                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------- |
+| https://[my.domain.com]/auth | Oauth Authorization & Callback Endpoint (`auth_endpoint` value in Decap Backend config) |
