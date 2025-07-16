@@ -11,10 +11,7 @@ const DEFAULT_SITE_ID_LIST = ['localhost', '127.0.0.1'] as const
 
 const DEFAULT_GITLAB_BASE_URL = 'https://gitlab.com' as const
 
-const ENDPOINT_MAP = {
-  auth: '/auth',
-  callback: '/callback',
-} as const
+const AUTH_ENDPOINT = '/auth' as const
 
 declare const __BUILD_TIME__: string
 
@@ -44,12 +41,13 @@ interface AppEnv extends HonoEnv {
   } & SecureHeadersVariables
 }
 
-const getStateCookieName = (provider: string) => `${provider}-state` as const
-
 const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const site_id = ctx.req.query('site_id')
   const allowSiteIdList = [
-    ...env(ctx).ALLOW_SITE_ID_LIST?.split(',').map(i => i.trim()).filter(Boolean),
+    ...env(ctx)
+      .ALLOW_SITE_ID_LIST?.split(',')
+      .map(i => i.trim())
+      .filter(Boolean),
     ...DEFAULT_SITE_ID_LIST,
   ]
   if (!site_id || !allowSiteIdList.includes(site_id)) {
@@ -59,20 +57,15 @@ const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   await next()
 })
 
-const oauthMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
-  const { provider, site_id } = ctx.req.query()
-  const getCallbackUrl = (params?: Record<string, string>) => {
-    const url = new URL(ENDPOINT_MAP.callback, ctx.req.url)
-    url.search = new URLSearchParams(params).toString()
-    return url.href
-  }
+const oauthProviderMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
+  const provider = ctx.req.query('provider')
   if (provider == 'github') {
     ctx.set(
       'oauthClient',
       new GitHub(
         env(ctx).GITHUB_OAUTH_ID,
         env(ctx).GITHUB_OAUTH_SECRET,
-        getCallbackUrl({ provider, site_id })
+        ctx.req.url,
       )
     )
   } else if (provider == 'gitlab') {
@@ -82,7 +75,7 @@ const oauthMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
         env(ctx).GITLAB_BASE_URL ?? DEFAULT_GITLAB_BASE_URL,
         env(ctx).GITLAB_OAUTH_ID,
         env(ctx).GITLAB_OAUTH_SECRET,
-        getCallbackUrl({ provider, site_id })
+        ctx.req.url,
       )
     )
   } else {
@@ -111,7 +104,7 @@ window.opener.postMessage('${signal}', '${trustOrigin ?? '*'}')
 
 const secureAuthMiddleware = every(
   siteIdVerifyMiddleware,
-  oauthMiddleware,
+  oauthProviderMiddleware,
   respRenderMiddleware
 )
 
@@ -146,38 +139,42 @@ app.onError((err, ctx) => {
   return ctx.body('Internal Server Error', 500)
 })
 
-app.get(ENDPOINT_MAP.auth, secureAuthMiddleware, async ctx => {
-  const { provider, oauthClient } = ctx.var
-  const cookieName = getStateCookieName(provider)
-  const state = generateState()
-  await setSignedCookie(ctx, cookieName, state, env(ctx).SECRET, {
-    maxAge: 3 * 60,
-    httpOnly: true,
-    path: ENDPOINT_MAP.callback,
-    secure: true,
-    sameSite: 'Lax',
-    priority: 'High',
-    prefix: 'secure',
-  })
-  const scope = ctx.req.query('scope')?.split(' ') ?? []
-  return ctx.redirect(oauthClient.createAuthorizationURL(state, scope))
-})
-
-app.get(ENDPOINT_MAP.callback, secureAuthMiddleware, async ctx => {
-  const { provider, oauthClient } = ctx.var
-  const cookieName = getStateCookieName(provider)
-  const storedState = await getSignedCookie(ctx, env(ctx).SECRET, cookieName, 'secure')
-  deleteCookie(ctx, cookieName, { path: ENDPOINT_MAP.callback, secure: true })
-  const state = ctx.req.query('state')
-  if (!state || !storedState || state !== storedState) {
-    throw new HTTPException(400, { message: 'Invalid state' })
-  }
+app.get(AUTH_ENDPOINT, secureAuthMiddleware, async ctx => {
   const code = ctx.req.query('code')
+  const { provider, oauthClient } = ctx.var
+  const stateCookieName = `${provider}-state` as const
   if (!code) {
-    throw new HTTPException(400, { message: 'Invalid code' })
+    const state = generateState()
+    await setSignedCookie(ctx, stateCookieName, state, env(ctx).SECRET, {
+      maxAge: 3 * 60,
+      httpOnly: true,
+      path: AUTH_ENDPOINT,
+      secure: true,
+      sameSite: 'Lax',
+      priority: 'High',
+      prefix: 'secure',
+    })
+    return ctx.redirect(
+      oauthClient.createAuthorizationURL(
+        state,
+        ctx.req.query('scope')?.split(' ') ?? []
+      )
+    )
+  } else {
+    const storedState = await getSignedCookie(
+      ctx,
+      env(ctx).SECRET,
+      stateCookieName,
+      'secure'
+    )
+    deleteCookie(ctx, stateCookieName, { path: AUTH_ENDPOINT, secure: true })
+    const state = ctx.req.query('state')
+    if (!state || !storedState || state !== storedState) {
+      throw new HTTPException(400, { message: 'Invalid state' })
+    }
+    const tokens = await oauthClient.validateAuthorizationCode(code)
+    return ctx.render('success', { token: tokens.accessToken() }, 200)
   }
-  const tokens = await oauthClient.validateAuthorizationCode(code)
-  return ctx.render('success', { token: tokens.accessToken() }, 200)
 })
 
 app.all('*', ctx => ctx.text('Ciallo～(∠·ω< )⌒★', 418))
