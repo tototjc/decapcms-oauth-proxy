@@ -7,9 +7,9 @@ import { secureHeaders, NONCE, type SecureHeadersVariables } from 'hono/secure-h
 import { setSignedCookie, getSignedCookie, deleteCookie } from 'hono/cookie'
 import { GitHub, GitLab, generateState, OAuth2RequestError } from 'arctic'
 
-const ALLOW_LOCALHOST_LOGIN = true
-
 const AUTH_ENDPOINT = '/auth'
+
+const WINDOW_NAME = 'Netlify Authorization'
 
 const DEFAULT_GITLAB_BASE_URL = 'https://gitlab.com'
 
@@ -50,7 +50,7 @@ const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
       trustOriginsMap.set(url.hostname, url.origin)
     }
   })
-  if (ALLOW_LOCALHOST_LOGIN) {
+  if (env(ctx).ALLOW_LOCALHOST_LOGIN) {
     const referer = URL.parse(ctx.req.header('Referer') ?? '')
     if (referer && (referer.hostname === 'localhost' || referer.hostname === '127.0.0.1')) {
       trustOriginsMap.set('demo.decapcms.org', referer.origin)
@@ -100,7 +100,7 @@ const respRenderMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     return ctx.html(`
 <script nonce="${secureHeadersNonce}">
 window.addEventListener('message', ({ data, origin, source }) => origin === '${verifiedOrigin}' && source === window.opener && data === '${signal}' && source.postMessage('${data}', origin), { once: true })
-window.opener.postMessage('${signal}', '${verifiedOrigin}')
+window.name === '${WINDOW_NAME}' && window.opener.postMessage('${signal}', '${verifiedOrigin}')
 </script>
     `.trim(), code)
   })
