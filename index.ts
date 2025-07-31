@@ -7,11 +7,11 @@ import { secureHeaders, NONCE, type SecureHeadersVariables } from 'hono/secure-h
 import { setSignedCookie, getSignedCookie, deleteCookie } from 'hono/cookie'
 import { GitHub, GitLab, generateState, OAuth2RequestError } from 'arctic'
 
-const DEFAULT_SITE_ID_LIST = ['localhost', '127.0.0.1'] as const
+const ALLOW_LOCALHOST_LOGIN = true
 
-const DEFAULT_GITLAB_BASE_URL = 'https://gitlab.com' as const
+const AUTH_ENDPOINT = '/auth'
 
-const AUTH_ENDPOINT = '/auth' as const
+const DEFAULT_GITLAB_BASE_URL = 'https://gitlab.com'
 
 declare const __BUILD_TIME__: string
 
@@ -35,7 +35,7 @@ declare module 'hono' {
 interface AppEnv extends HonoEnv {
   Bindings: Env
   Variables: {
-    site_id: string
+    verifiedOrigin: string
     provider: 'github' | 'gitlab'
     oauthClient: GitHub | GitLab
   } & SecureHeadersVariables
@@ -43,17 +43,24 @@ interface AppEnv extends HonoEnv {
 
 const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const site_id = ctx.req.query('site_id')
-  const allowSiteIdList = [
-    ...env(ctx)
-      .ALLOW_SITE_ID_LIST?.split(',')
-      .map(i => i.trim())
-      .filter(Boolean),
-    ...DEFAULT_SITE_ID_LIST,
-  ]
-  if (!site_id || !allowSiteIdList.includes(site_id)) {
+  const trustOriginsMap = new Map<string, string>()
+  env(ctx).TRUST_ORIGINS.split(/\s+/).forEach(origin => {
+    const url = URL.parse(origin)
+    if (url) {
+      trustOriginsMap.set(url.hostname, url.origin)
+    }
+  })
+  if (ALLOW_LOCALHOST_LOGIN) {
+    const referer = URL.parse(ctx.req.header('Referer') ?? '')
+    if (referer && (referer.hostname === 'localhost' || referer.hostname === '127.0.0.1')) {
+      trustOriginsMap.set('demo.decapcms.org', referer.origin)
+    }
+  }
+  const verifiedOrigin = site_id && trustOriginsMap.get(site_id)
+  if (!verifiedOrigin) {
     throw new HTTPException(400, { message: 'Invalid site_id' })
   }
-  ctx.set('site_id', site_id)
+  ctx.set('verifiedOrigin', verifiedOrigin)
   await next()
 })
 
@@ -86,16 +93,14 @@ const oauthProviderMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
 })
 
 const respRenderMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
-  const { provider, site_id, secureHeadersNonce } = ctx.var
-  const referer = URL.parse(ctx.req.header('Referer') ?? '')
-  const trustOrigin = referer && site_id === referer.hostname ? referer.origin : undefined
+  const { provider, verifiedOrigin, secureHeadersNonce } = ctx.var
   ctx.setRenderer((status, payload, code) => {
     const signal = ['authorizing', provider].join(':')
     const data = ['authorization', provider, status, JSON.stringify(payload)].join(':')
     return ctx.html(`
 <script nonce="${secureHeadersNonce}">
-window.addEventListener('message', ({ data, origin, source }) => ${trustOrigin ? `origin === '${trustOrigin}' &&` : ''} source === window.opener && data === '${signal}' && source.postMessage('${data}', origin), { once: true })
-window.opener.postMessage('${signal}', '${trustOrigin ?? '*'}')
+window.addEventListener('message', ({ data, origin, source }) => origin === '${verifiedOrigin}' && source === window.opener && data === '${signal}' && source.postMessage('${data}', origin), { once: true })
+window.opener.postMessage('${signal}', '${verifiedOrigin}')
 </script>
     `.trim(), code)
   })
