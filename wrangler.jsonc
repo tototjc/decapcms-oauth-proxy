@@ -30,7 +30,7 @@
    * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
    */
   "vars": {
-    "ALLOW_LOCALHOST_LOGIN": true,
+    "ALLOW_DECAP_LOCALHOST_LOGIN": true,
   },
   /**
    * Note: Use secrets to store sensitive data.

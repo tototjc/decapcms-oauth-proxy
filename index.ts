@@ -48,7 +48,7 @@ const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     const url = URL.parse(origin)
     if (url) {
       const { hostname, origin } = url
-      if (env(ctx).ALLOW_LOCALHOST_LOGIN && hostname === 'localhost') {
+      if (env(ctx).ALLOW_DECAP_LOCALHOST_LOGIN && hostname === 'localhost') {
         trustOriginsMap.set('demo.decapcms.org', origin)
       } else {
         trustOriginsMap.set(hostname, origin)
