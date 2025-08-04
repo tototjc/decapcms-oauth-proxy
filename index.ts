@@ -47,15 +47,14 @@ const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   env(ctx).TRUST_ORIGINS.split(/\s+/).forEach(origin => {
     const url = URL.parse(origin)
     if (url) {
-      trustOriginsMap.set(url.hostname, url.origin)
+      const { hostname, origin } = url
+      if (env(ctx).ALLOW_LOCALHOST_LOGIN && hostname === 'localhost') {
+        trustOriginsMap.set('demo.decapcms.org', origin)
+      } else {
+        trustOriginsMap.set(hostname, origin)
+      }
     }
   })
-  if (env(ctx).ALLOW_LOCALHOST_LOGIN) {
-    const referer = URL.parse(ctx.req.header('Referer') ?? '')
-    if (referer && (referer.hostname === 'localhost' || referer.hostname === '127.0.0.1')) {
-      trustOriginsMap.set('demo.decapcms.org', referer.origin)
-    }
-  }
   const verifiedOrigin = site_id && trustOriginsMap.get(site_id)
   if (!verifiedOrigin) {
     throw new HTTPException(400, { message: 'Invalid site_id' })
