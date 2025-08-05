@@ -1,13 +1,16 @@
 import { Hono, type Env as HonoEnv } from 'hono'
 import { env } from 'hono/adapter'
-import { every } from 'hono/combine'
+import { some, every } from 'hono/combine'
 import { createMiddleware } from 'hono/factory'
 import { HTTPException } from 'hono/http-exception'
-import { secureHeaders, NONCE, type SecureHeadersVariables } from 'hono/secure-headers'
+import { encodeBase64Url, decodeBase64Url } from 'hono/utils/encode'
 import { setSignedCookie, getSignedCookie, deleteCookie } from 'hono/cookie'
+import { secureHeaders, NONCE, type SecureHeadersVariables } from 'hono/secure-headers'
 import { GitHub, GitLab, generateState, OAuth2RequestError } from 'arctic'
 
 const AUTH_ENDPOINT = '/auth'
+
+const STATE_COOKIE_NAME = 'state'
 
 const WINDOW_NAME = 'Netlify Authorization'
 
@@ -36,7 +39,8 @@ interface AppEnv extends HonoEnv {
   Bindings: Env
   Variables: {
     verifiedOrigin: string
-    provider: 'github' | 'gitlab'
+    provider: string
+    state: string
     oauthClient: GitHub | GitLab
   } & SecureHeadersVariables
 }
@@ -63,36 +67,88 @@ const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   await next()
 })
 
-const oauthProviderMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
+const stateDecodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
+  const state = ctx.req.query('state')
+  if (!state) {
+    throw new HTTPException(400, { message: 'Missing state parameter' })
+  }
+  const storedState = await getSignedCookie(
+    ctx,
+    env(ctx).SECRET,
+    STATE_COOKIE_NAME,
+    'secure'
+  )
+  if (!storedState || state !== storedState) {
+    throw new HTTPException(400, { message: 'Invalid state' })
+  }
+  deleteCookie(ctx, STATE_COOKIE_NAME, { path: AUTH_ENDPOINT, secure: true })
+  const stateParts = state.split('.')
+  if (stateParts.length !== 2) {
+    throw new HTTPException(400, { message: 'Invalid state format' })
+  }
+  const payload = (() => {
+    try {
+      return JSON.parse(
+        new TextDecoder().decode(decodeBase64Url(stateParts[0]))
+      ) as { provider: string; verifiedOrigin: string }
+    } catch (e) {
+      throw new HTTPException(400, { message: 'Invalid state payload' })
+    }
+  })()
+  ctx.set('provider', payload.provider)
+  ctx.set('verifiedOrigin', payload.verifiedOrigin)
+  await next()
+})
+
+const stateEncodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const provider = ctx.req.query('provider')
+  if (!provider) {
+    throw new HTTPException(400, { message: 'Missing provider parameter' })
+  }
+  const { verifiedOrigin } = ctx.var
+  const statePayload = encodeBase64Url(
+    new TextEncoder().encode(JSON.stringify({ provider, verifiedOrigin })).buffer
+  )
+  const state = [statePayload, generateState()].join('.')
+  await setSignedCookie(ctx, STATE_COOKIE_NAME, state, env(ctx).SECRET, {
+    maxAge: 3 * 60,
+    httpOnly: true,
+    path: AUTH_ENDPOINT,
+    secure: true,
+    sameSite: 'Lax',
+    priority: 'High',
+    prefix: 'secure',
+  })
+  ctx.set('state', state)
+  ctx.set('provider', provider)
+  await next()
+})
+
+const oauthClientMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
+  const { provider, verifiedOrigin, secureHeadersNonce } = ctx.var
+  const callbackUrl = new URL(AUTH_ENDPOINT, ctx.req.url).href
   if (provider == 'github') {
     ctx.set(
       'oauthClient',
       new GitHub(
         env(ctx).GITHUB_OAUTH_ID,
         env(ctx).GITHUB_OAUTH_SECRET,
-        ctx.req.url,
+        callbackUrl,
       )
     )
   } else if (provider == 'gitlab') {
     ctx.set(
       'oauthClient',
       new GitLab(
-        env(ctx).GITLAB_BASE_URL ?? DEFAULT_GITLAB_BASE_URL,
+        env(ctx).GITLAB_BASE_URL || DEFAULT_GITLAB_BASE_URL,
         env(ctx).GITLAB_OAUTH_ID,
         env(ctx).GITLAB_OAUTH_SECRET,
-        ctx.req.url,
+        callbackUrl,
       )
     )
   } else {
     throw new HTTPException(400, { message: 'Invalid provider' })
   }
-  ctx.set('provider', provider)
-  await next()
-})
-
-const respRenderMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
-  const { provider, verifiedOrigin, secureHeadersNonce } = ctx.var
   ctx.setRenderer((status, payload, code) => {
     const signal = ['authorizing', provider].join(':')
     const data = ['authorization', provider, status, JSON.stringify(payload)].join(':')
@@ -105,12 +161,6 @@ window.name === '${WINDOW_NAME}' && window.opener.postMessage('${signal}', '${ve
   })
   await next()
 })
-
-const secureAuthMiddleware = every(
-  siteIdVerifyMiddleware,
-  oauthProviderMiddleware,
-  respRenderMiddleware
-)
 
 const app = new Hono<AppEnv>()
 
@@ -140,46 +190,32 @@ app.onError((err, ctx) => {
   if (err instanceof HTTPException) {
     return err.getResponse()
   }
+  console.log(err)
   return ctx.body('Internal Server Error', 500)
 })
 
-app.get(AUTH_ENDPOINT, secureAuthMiddleware, async ctx => {
-  const code = ctx.req.query('code')
-  const { provider, oauthClient } = ctx.var
-  const stateCookieName = `${provider}-state` as const
-  if (!code) {
-    const state = generateState()
-    await setSignedCookie(ctx, stateCookieName, state, env(ctx).SECRET, {
-      maxAge: 3 * 60,
-      httpOnly: true,
-      path: AUTH_ENDPOINT,
-      secure: true,
-      sameSite: 'Lax',
-      priority: 'High',
-      prefix: 'secure',
-    })
-    return ctx.redirect(
-      oauthClient.createAuthorizationURL(
-        state,
-        ctx.req.query('scope')?.split(' ') ?? []
+app.get(
+  AUTH_ENDPOINT,
+  some(
+    every(stateDecodeMiddleware, oauthClientMiddleware),
+    every(siteIdVerifyMiddleware, stateEncodeMiddleware, oauthClientMiddleware),
+  ),
+  async ctx => {
+    const code = ctx.req.query('code')
+    const { oauthClient, state } = ctx.var
+    if (code) {
+      const tokens = await oauthClient.validateAuthorizationCode(code)
+      return ctx.render('success', { token: tokens.accessToken() }, 200)
+    } else {
+      return ctx.redirect(
+        oauthClient.createAuthorizationURL(
+          state,
+          ctx.req.query('scope')?.split(' ') ?? []
+        )
       )
-    )
-  } else {
-    const storedState = await getSignedCookie(
-      ctx,
-      env(ctx).SECRET,
-      stateCookieName,
-      'secure'
-    )
-    deleteCookie(ctx, stateCookieName, { path: AUTH_ENDPOINT, secure: true })
-    const state = ctx.req.query('state')
-    if (!state || !storedState || state !== storedState) {
-      throw new HTTPException(400, { message: 'Invalid state' })
     }
-    const tokens = await oauthClient.validateAuthorizationCode(code)
-    return ctx.render('success', { token: tokens.accessToken() }, 200)
   }
-})
+)
 
 app.all('*', ctx => ctx.text('Ciallo～(∠·ω< )⌒★', 418))
 
