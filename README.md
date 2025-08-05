@@ -15,6 +15,7 @@ A Cloudflare Worker Github & Gitlab OAuth proxy for [Decap CMS](https://github.c
 | GITLAB_OAUTH_SECRET | GitHub OAuth App Client Secrets.                                                                 |
 
 **Important:**
+
 When using **Decap CMS** with the hostname `localhost`, you must set the environment variable `ALLOW_DECAP_LOCALHOST_LOGIN=true`. Because Decap CMS uses `demo.decapcms.org` as the `site_id` when the site is accessed via `localhost`.
 
 This setting is **not** required when using **Sveltia CMS**, which handles `localhost` differently.

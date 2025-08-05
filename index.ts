@@ -67,6 +67,17 @@ const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   await next()
 })
 
+const providerVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
+  const provider = ctx.req.query('provider')
+  if (!provider) {
+    throw new HTTPException(400, { message: 'Missing provider parameter' })
+  }
+  ctx.set('provider', provider)
+  await next()
+})
+
+const paramsVerifyMiddleware = every(siteIdVerifyMiddleware, providerVerifyMiddleware)
+
 const stateDecodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const state = ctx.req.query('state')
   if (!state) {
@@ -101,11 +112,7 @@ const stateDecodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
 })
 
 const stateEncodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
-  const provider = ctx.req.query('provider')
-  if (!provider) {
-    throw new HTTPException(400, { message: 'Missing provider parameter' })
-  }
-  const { verifiedOrigin } = ctx.var
+  const { provider, verifiedOrigin } = ctx.var
   const statePayload = encodeBase64Url(
     new TextEncoder().encode(JSON.stringify({ provider, verifiedOrigin })).buffer
   )
@@ -120,7 +127,6 @@ const stateEncodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     prefix: 'secure',
   })
   ctx.set('state', state)
-  ctx.set('provider', provider)
   await next()
 })
 
@@ -190,7 +196,6 @@ app.onError((err, ctx) => {
   if (err instanceof HTTPException) {
     return err.getResponse()
   }
-  console.log(err)
   return ctx.body('Internal Server Error', 500)
 })
 
@@ -198,7 +203,7 @@ app.get(
   AUTH_ENDPOINT,
   some(
     every(stateDecodeMiddleware, oauthClientMiddleware),
-    every(siteIdVerifyMiddleware, stateEncodeMiddleware, oauthClientMiddleware),
+    every(paramsVerifyMiddleware, stateEncodeMiddleware, oauthClientMiddleware),
   ),
   async ctx => {
     const code = ctx.req.query('code')
