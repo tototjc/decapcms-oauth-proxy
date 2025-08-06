@@ -25,12 +25,12 @@ declare module 'hono' {
     (
       status: 'success',
       payload: { token: string; [key: string]: unknown },
-      code?: Code
+      code?: Code,
     ): Response
     (
       status: 'error',
       payload: { message: string | null; [key: string]: unknown },
-      code?: Code
+      code?: Code,
     ): Response
   }
 }
@@ -48,18 +48,20 @@ interface AppEnv extends HonoEnv {
 const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const site_id = ctx.req.query('site_id')
   const trustOriginsMap = new Map<string, string>()
-  env(ctx).TRUST_ORIGINS.split(/\s+/).forEach(origin => {
-    const url = URL.parse(origin)
-    if (url) {
-      const { hostname, origin } = url
-      trustOriginsMap.set(
-        env(ctx).ALLOW_DECAP_LOCALHOST_LOGIN && hostname === 'localhost'
-          ? 'demo.decapcms.org'
-          : hostname,
-        origin
-      )
-    }
-  })
+  env(ctx)
+    .TRUST_ORIGINS.split(/\s+/)
+    .forEach(origin => {
+      const url = URL.parse(origin)
+      if (url) {
+        const { hostname, origin } = url
+        trustOriginsMap.set(
+          env(ctx).ALLOW_DECAP_LOCALHOST_LOGIN && hostname === 'localhost'
+            ? 'demo.decapcms.org'
+            : hostname,
+          origin,
+        )
+      }
+    })
   const verifiedOrigin = site_id && trustOriginsMap.get(site_id)
   if (!verifiedOrigin) {
     throw new HTTPException(400, { message: 'Invalid site_id' })
@@ -77,7 +79,10 @@ const providerVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   await next()
 })
 
-const paramsVerifyMiddleware = every(siteIdVerifyMiddleware, providerVerifyMiddleware)
+const paramsVerifyMiddleware = every(
+  siteIdVerifyMiddleware,
+  providerVerifyMiddleware,
+)
 
 type StatePayload = {
   provider: string
@@ -101,7 +106,7 @@ const stateDecodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     ctx,
     env(ctx).SECRET,
     STATE_COOKIE_NAME,
-    'secure'
+    'secure',
   )
   if (!storedState || state !== storedState) {
     throw new HTTPException(400, { message: 'Invalid state' })
@@ -112,7 +117,9 @@ const stateDecodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     throw new HTTPException(400, { message: 'Invalid state format' })
   }
   try {
-    const payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(stateParts[0])))
+    const payload = JSON.parse(
+      new TextDecoder().decode(decodeBase64Url(stateParts[0])),
+    )
     if (isStatePayload(payload)) {
       ctx.set('provider', payload.provider)
       ctx.set('verifiedOrigin', payload.verifiedOrigin)
@@ -129,8 +136,8 @@ const stateEncodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const { provider, verifiedOrigin } = ctx.var
   const statePayload = encodeBase64Url(
     new TextEncoder().encode(
-      JSON.stringify({ provider, verifiedOrigin } satisfies StatePayload)
-    ).buffer
+      JSON.stringify({ provider, verifiedOrigin } satisfies StatePayload),
+    ).buffer,
   )
   const state = [statePayload, generateState()].join('.')
   await setSignedCookie(ctx, STATE_COOKIE_NAME, state, env(ctx).SECRET, {
@@ -149,16 +156,16 @@ const stateEncodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
 const oauthClientMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const { provider, verifiedOrigin, secureHeadersNonce } = ctx.var
   const callbackUrl = new URL(AUTH_ENDPOINT, ctx.req.url).href
-  if (provider == 'github') {
+  if (provider === 'github') {
     ctx.set(
       'oauthClient',
       new GitHub(
         env(ctx).GITHUB_OAUTH_ID,
         env(ctx).GITHUB_OAUTH_SECRET,
         callbackUrl,
-      )
+      ),
     )
-  } else if (provider == 'gitlab') {
+  } else if (provider === 'gitlab') {
     ctx.set(
       'oauthClient',
       new GitLab(
@@ -166,7 +173,7 @@ const oauthClientMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
         env(ctx).GITLAB_OAUTH_ID,
         env(ctx).GITLAB_OAUTH_SECRET,
         callbackUrl,
-      )
+      ),
     )
   } else {
     throw new HTTPException(400, { message: 'Invalid provider' })
@@ -205,7 +212,7 @@ app.use(
     crossOriginEmbedderPolicy: true,
     crossOriginOpenerPolicy: false,
     referrerPolicy: 'origin',
-  })
+  }),
 )
 
 app.onError((err, ctx) => {
@@ -234,11 +241,11 @@ app.get(
       return ctx.redirect(
         oauthClient.createAuthorizationURL(
           state,
-          ctx.req.query('scope')?.split(' ') ?? []
-        )
+          ctx.req.query('scope')?.split(' ') ?? [],
+        ),
       )
     }
-  }
+  },
 )
 
 app.all('*', ctx => ctx.text('Ciallo～(∠·ω< )⌒★', 418))
