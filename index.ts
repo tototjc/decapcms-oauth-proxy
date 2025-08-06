@@ -52,11 +52,12 @@ const siteIdVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     const url = URL.parse(origin)
     if (url) {
       const { hostname, origin } = url
-      if (env(ctx).ALLOW_DECAP_LOCALHOST_LOGIN && hostname === 'localhost') {
-        trustOriginsMap.set('demo.decapcms.org', origin)
-      } else {
-        trustOriginsMap.set(hostname, origin)
-      }
+      trustOriginsMap.set(
+        env(ctx).ALLOW_DECAP_LOCALHOST_LOGIN && hostname === 'localhost'
+          ? 'demo.decapcms.org'
+          : hostname,
+        origin
+      )
     }
   })
   const verifiedOrigin = site_id && trustOriginsMap.get(site_id)
@@ -78,6 +79,19 @@ const providerVerifyMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
 
 const paramsVerifyMiddleware = every(siteIdVerifyMiddleware, providerVerifyMiddleware)
 
+type StatePayload = {
+  provider: string
+  verifiedOrigin: string
+}
+
+const isStatePayload = (data: unknown): data is StatePayload =>
+  typeof data === 'object' &&
+  data !== null &&
+  'provider' in data &&
+  'verifiedOrigin' in data &&
+  typeof data.provider === 'string' &&
+  typeof data.verifiedOrigin === 'string'
+
 const stateDecodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const state = ctx.req.query('state')
   if (!state) {
@@ -97,24 +111,26 @@ const stateDecodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   if (stateParts.length !== 2) {
     throw new HTTPException(400, { message: 'Invalid state format' })
   }
-  const payload = (() => {
-    try {
-      return JSON.parse(
-        new TextDecoder().decode(decodeBase64Url(stateParts[0]))
-      ) as { provider: string; verifiedOrigin: string }
-    } catch (e) {
-      throw new HTTPException(400, { message: 'Invalid state payload' })
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(stateParts[0])))
+    if (isStatePayload(payload)) {
+      ctx.set('provider', payload.provider)
+      ctx.set('verifiedOrigin', payload.verifiedOrigin)
+    } else {
+      throw new Error()
     }
-  })()
-  ctx.set('provider', payload.provider)
-  ctx.set('verifiedOrigin', payload.verifiedOrigin)
+  } catch {
+    throw new HTTPException(400, { message: 'Invalid state payload' })
+  }
   await next()
 })
 
 const stateEncodeMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
   const { provider, verifiedOrigin } = ctx.var
   const statePayload = encodeBase64Url(
-    new TextEncoder().encode(JSON.stringify({ provider, verifiedOrigin })).buffer
+    new TextEncoder().encode(
+      JSON.stringify({ provider, verifiedOrigin } satisfies StatePayload)
+    ).buffer
   )
   const state = [statePayload, generateState()].join('.')
   await setSignedCookie(ctx, STATE_COOKIE_NAME, state, env(ctx).SECRET, {
@@ -154,6 +170,9 @@ const oauthClientMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     )
   } else {
     throw new HTTPException(400, { message: 'Invalid provider' })
+  }
+  if (!URL.canParse(verifiedOrigin)) {
+    throw new HTTPException(400, { message: 'Invalid verified origin' })
   }
   ctx.setRenderer((status, payload, code) => {
     const signal = ['authorizing', provider].join(':')
