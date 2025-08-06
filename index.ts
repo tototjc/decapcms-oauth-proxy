@@ -12,8 +12,6 @@ const AUTH_ENDPOINT = '/auth'
 
 const STATE_COOKIE_NAME = 'state'
 
-const WINDOW_NAME = 'Netlify Authorization'
-
 const DEFAULT_GITLAB_BASE_URL = 'https://gitlab.com'
 
 declare const __BUILD_TIME__: string
@@ -187,7 +185,7 @@ const oauthClientMiddleware = createMiddleware<AppEnv>(async (ctx, next) => {
     return ctx.html(`
 <script nonce="${secureHeadersNonce}">
 window.addEventListener('message', ({ data, origin, source }) => origin === '${verifiedOrigin}' && source === window.opener && data === '${signal}' && source.postMessage('${data}', origin), { once: true })
-window.name === '${WINDOW_NAME}' && window.opener.postMessage('${signal}', '${verifiedOrigin}')
+window.opener.postMessage('${signal}', '${verifiedOrigin}')
 </script>
     `.trim(), code)
   })
