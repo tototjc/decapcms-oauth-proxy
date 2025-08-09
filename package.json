@@ -5,11 +5,13 @@
   "scripts": {
     "dev": "wrangler dev --define \"__BUILD_TIME__:'dev'\"",
     "deploy": "wrangler deploy --minify --define \"__BUILD_TIME__:'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"",
-    "typegen": "wrangler types"
+    "typegen": "wrangler types",
+    "check": "biome check"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.1.4",
     "arctic": "^3.7.0",
-    "hono": "^4.8.12",
-    "wrangler": "^4.28.0"
+    "hono": "^4.9.0",
+    "wrangler": "^4.28.1"
   }
 }
